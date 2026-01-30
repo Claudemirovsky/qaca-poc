@@ -3,14 +3,13 @@ import requests
 import urllib.parse
 from src.models.coeficiente import Coeficiente
 from src.exceptions import LoginError, ApiError
+from src.parsers.horarios import parse_horarios
+from src.utils import rsa_encrypt
 from .models import (
     Disciplina,
     Matriz,
     Usuario,
-    HorarioItem,
     HorarioDiaItem,
-    HorarioPeriodoItem,
-    TurnoPeriodo,
     PeriodoLetivo,
     BoletimItem,
 )
@@ -20,6 +19,7 @@ from pydantic import TypeAdapter
 
 class QAcademico:
     DEFAULT_BASE_URL = "https://antigo.qacademico.ifce.edu.br"
+    DEFAULT_HTML_PARSER = "html.parser"
     __REGEX_RSA = re.compile(r'new RSAKeyPair\(.*"(\w+)",.*"(\w+)"', re.DOTALL)
     __disciplinas_ta = TypeAdapter(list[Disciplina])
     __periodos_ta = TypeAdapter(list[PeriodoLetivo])
@@ -40,21 +40,6 @@ class QAcademico:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.__session.close()
 
-    def __encrypt(self, input, exp_hex, mod_hex):
-        n = int(mod_hex, 16)
-        e = int(exp_hex, 16)
-
-        key_size = (n.bit_length() + 7) // 8
-
-        encoded = input.encode("utf-8")
-
-        padded = encoded + (b"\x00" * (key_size - len(encoded)))
-
-        m = int.from_bytes(padded, byteorder="little")
-
-        encrypted = pow(m, e, n)
-        return hex(encrypted)[2:]
-
     def login(self, matricula: str, senha: str):
         qaca_url = f"{self.base_url}/qacademico"
         # só pra pegar os cookies iniciais mesmo
@@ -73,10 +58,10 @@ class QAcademico:
         exp, mod = search.groups()
 
         data = {
-            "LOGIN": self.__encrypt(matricula, exp, mod),
-            "SENHA": self.__encrypt(senha, exp, mod),
-            "TIPO_USU": self.__encrypt("1", exp, mod),
-            "SUbmit": self.__encrypt("OK", exp, mod),
+            "LOGIN": rsa_encrypt(matricula, exp, mod),
+            "SENHA": rsa_encrypt(senha, exp, mod),
+            "TIPO_USU": rsa_encrypt("1", exp, mod),
+            "SUbmit": rsa_encrypt("OK", exp, mod),
         }
 
         self.__session.headers["Referer"] = f"{qaca_url}/index.asp?t=1001"
@@ -151,39 +136,8 @@ class QAcademico:
         )
         if not response.ok:
             raise ApiError("dados dos horários", response)
-        doc = BeautifulSoup(response.text, "html.parser")
-        return self.__horarios(doc)
-
-    def __horarios(self, doc: BeautifulSoup) -> dict[str, HorarioDiaItem]:
-        table = doc.select_one("table.conteudoTitulo + br + table")
-        assert table is not None
-        lines = table.select("tr")
-        titles = [x.text.strip() for x in lines[0].select("font")]
-        data = {x: HorarioDiaItem(items={}) for x in titles[1:]}
-        for line in table.select("tr")[1:]:
-            cols = line.select("td font")
-            time = TurnoPeriodo(cols[0].text.strip()).name
-            del cols[0]
-            for i in range(0, len(cols)):
-                key = titles[i + 1]
-                data[key].items[time] = None
-                col = cols[i]
-                elemMateria = col.select_one("div:has(+br)")
-                elemSala = col.select_one("div + br + div:has(+br)")
-                if (
-                    len(col.text.strip()) == 0
-                    or elemMateria is None
-                    or elemSala is None
-                ):
-                    continue
-                cadeira = HorarioItem(
-                    nome=str(elemMateria["title"]), sigla=elemMateria.text.strip()
-                )
-                sala = HorarioItem(
-                    nome=str(elemSala["title"]), sigla=elemSala.text.strip()
-                )
-                data[key].items[time] = HorarioPeriodoItem(cadeira=cadeira, sala=sala)
-        return data
+        doc = BeautifulSoup(response.text, self.DEFAULT_HTML_PARSER)
+        return parse_horarios(doc)
 
     def periodos_letivos(self) -> list[PeriodoLetivo]:
         response = self.__session.get(f"{self.api_url}/boletim/periodos-letivos")
