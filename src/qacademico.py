@@ -33,6 +33,12 @@ class QAcademico:
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0",
         }
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.__session.close()
+
     def __encrypt(self, input, exp_hex, mod_hex):
         n = int(mod_hex, 16)
         e = int(exp_hex, 16)
