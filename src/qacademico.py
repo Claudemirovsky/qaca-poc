@@ -19,17 +19,18 @@ from pydantic import TypeAdapter
 
 
 class QAcademico:
-    BASE_URL = "https://antigo.qacademico.ifce.edu.br"
+    DEFAULT_BASE_URL = "https://antigo.qacademico.ifce.edu.br"
     __REGEX_RSA = re.compile(r'new RSAKeyPair\(.*"(\w+)",.*"(\w+)"', re.DOTALL)
-    API_URL = f"{BASE_URL}/webapp/api"
     __disciplinas_ta = TypeAdapter(list[Disciplina])
     __periodos_ta = TypeAdapter(list[PeriodoLetivo])
     __boletim_ta = TypeAdapter(list[BoletimItem])
 
-    def __init__(self) -> None:
+    def __init__(self, base_url: str = DEFAULT_BASE_URL) -> None:
+        self.base_url = base_url.rstrip("/")
+        self.api_url = self.base_url + "/webapp/api"
         self.__session = requests.Session()
         self.__session.headers = {
-            "Referer": f"{self.BASE_URL}/qacademico/index.asp?t=1001",
+            "Referer": f"{self.base_url}/qacademico/index.asp?t=1001",
             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0",
         }
 
@@ -55,7 +56,7 @@ class QAcademico:
         return hex(encrypted)[2:]
 
     def login(self, matricula: str, senha: str):
-        qaca_url = f"{self.BASE_URL}/qacademico"
+        qaca_url = f"{self.base_url}/qacademico"
         # só pra pegar os cookies iniciais mesmo
         self.__session.get(f"{qaca_url}/index.asp", params={"t": 1001})
         rsa_res = self.__session.get(
@@ -107,7 +108,7 @@ class QAcademico:
                 raise LoginError(f"Erro desconhecido. Resposta do QAcadêmico: {code}")
 
     def matriz(self) -> Matriz:
-        response = self.__session.get(f"{self.API_URL}/matriz-curricular/minha-matriz")
+        response = self.__session.get(f"{self.api_url}/matriz-curricular/minha-matriz")
         if not response.ok:
             raise ApiError("a matriz", response)
 
@@ -115,7 +116,7 @@ class QAcademico:
 
     def disciplinas(self, matriz: Matriz) -> list[Disciplina]:
         response = self.__session.get(
-            f"{self.API_URL}/matriz-curricular/disciplinas",
+            f"{self.api_url}/matriz-curricular/disciplinas",
             params={
                 "idMatrizCurricular": matriz.id_matriz,
                 "idHabilitacao": matriz.habilitacoes[0].id_habilitacao,
@@ -128,7 +129,7 @@ class QAcademico:
 
     def usuario(self) -> Usuario:
         response = self.__session.get(
-            f"{self.API_URL}/autenticacao/usuario-autenticado"
+            f"{self.api_url}/autenticacao/usuario-autenticado"
         )
         if not response.ok:
             raise ApiError("dados do usuário", response)
@@ -146,7 +147,7 @@ class QAcademico:
                 "cmbperiodos": periodo.periodo,
             }
         response = self.__session.get(
-            f"{self.BASE_URL}/qacademico/index.asp", params=params
+            f"{self.base_url}/qacademico/index.asp", params=params
         )
         if not response.ok:
             raise ApiError("dados dos horários", response)
@@ -185,7 +186,7 @@ class QAcademico:
         return data
 
     def periodos_letivos(self) -> list[PeriodoLetivo]:
-        response = self.__session.get(f"{self.API_URL}/boletim/periodos-letivos")
+        response = self.__session.get(f"{self.api_url}/boletim/periodos-letivos")
         if not response.ok:
             raise ApiError("a lista de períodos letivos", response)
 
@@ -193,7 +194,7 @@ class QAcademico:
 
     def boletim(self, periodo: PeriodoLetivo) -> list[BoletimItem]:
         response = self.__session.get(
-            f"{self.API_URL}/boletim/disciplinas",
+            f"{self.api_url}/boletim/disciplinas",
             params=periodo.model_dump(by_alias=True),
         )
         if not response.ok:
@@ -203,7 +204,7 @@ class QAcademico:
 
     def coeficiente(self) -> Coeficiente:
         response = self.__session.get(
-            f"{self.API_URL}/dashboard/aluno/grafico-rendimento"
+            f"{self.api_url}/dashboard/aluno/grafico-rendimento"
         )
         if not response.ok:
             raise ApiError("coeficiente", response)
