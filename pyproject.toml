@@ -4,8 +4,4 @@ version = "0.1.0"
 description = "Prova de conceito de login no QAcadêmico automatizado"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-    "pydantic>=2.12.4",
-    "beautifulsoup4>=4.14.2",
-    "requests>=2.32.5",
-]
+dependencies = ["pydantic>=2.12.4", "beautifulsoup4>=4.14.2", "httpx>=0.28.1"]

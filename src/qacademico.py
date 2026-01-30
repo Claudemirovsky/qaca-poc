@@ -1,5 +1,5 @@
 import re
-import requests
+import httpx
 import urllib.parse
 from src.models.coeficiente import Coeficiente
 from src.exceptions import LoginError, ApiError
@@ -28,27 +28,29 @@ class QAcademico:
     def __init__(self, base_url: str = DEFAULT_BASE_URL) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_url = self.base_url + "/webapp/api"
-        self.__session = requests.Session()
-        self.__session.headers = {
-            "Referer": f"{self.base_url}/qacademico/index.asp?t=1001",
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0",
-        }
+        self.__client = httpx.AsyncClient(
+            follow_redirects=True,
+            headers={
+                "Referer": f"{self.base_url}/qacademico/index.asp?t=1001",
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0",
+            },
+        )
 
-    def __enter__(self):
+    async def __aenter__(self):
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.__session.close()
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.__client.aclose()
 
-    def login(self, matricula: str, senha: str):
+    async def login(self, matricula: str, senha: str):
         qaca_url = f"{self.base_url}/qacademico"
         # só pra pegar os cookies iniciais mesmo
-        self.__session.get(f"{qaca_url}/index.asp", params={"t": 1001})
-        rsa_res = self.__session.get(
+        await self.__client.get(f"{qaca_url}/index.asp", params={"t": 1001})
+        rsa_res = await self.__client.get(
             f"{qaca_url}/lib/rsa/gerador_chaves_rsa.asp",
             params={"form": "frmLogin", "action": "/qacademico/lib/validalogin.asp"},
         )
-        if not rsa_res.ok:
+        if rsa_res.is_error:
             raise LoginError(
                 f"Falha ao obter as chaves RSA: HTTP {rsa_res.status_code}"
             )
@@ -64,11 +66,12 @@ class QAcademico:
             "SUbmit": rsa_encrypt("OK", exp, mod),
         }
 
-        self.__session.headers["Referer"] = f"{qaca_url}/index.asp?t=1001"
-        res = self.__session.post(
+        self.__client.headers["Referer"] = f"{qaca_url}/index.asp?t=1001"
+
+        res = await self.__client.post(
             f"{qaca_url}/lib/validalogin.asp",
             data=data,
-            allow_redirects=False,
+            follow_redirects=False,
         )
 
         if res.status_code != 302 or "Location" not in res.headers:
@@ -92,36 +95,38 @@ class QAcademico:
             case _:
                 raise LoginError(f"Erro desconhecido. Resposta do QAcadêmico: {code}")
 
-    def matriz(self) -> Matriz:
-        response = self.__session.get(f"{self.api_url}/matriz-curricular/minha-matriz")
-        if not response.ok:
+    async def matriz(self) -> Matriz:
+        response = await self.__client.get(
+            f"{self.api_url}/matriz-curricular/minha-matriz"
+        )
+        if response.is_error:
             raise ApiError("a matriz", response)
 
         return Matriz.model_validate_json(response.text)
 
-    def disciplinas(self, matriz: Matriz) -> list[Disciplina]:
-        response = self.__session.get(
+    async def disciplinas(self, matriz: Matriz) -> list[Disciplina]:
+        response = await self.__client.get(
             f"{self.api_url}/matriz-curricular/disciplinas",
             params={
                 "idMatrizCurricular": matriz.id_matriz,
                 "idHabilitacao": matriz.habilitacoes[0].id_habilitacao,
             },
         )
-        if not response.ok:
+        if response.is_error:
             raise ApiError("a lista de disciplinas", response)
 
         return self.__disciplinas_ta.validate_json(response.text)
 
-    def usuario(self) -> Usuario:
-        response = self.__session.get(
+    async def usuario(self) -> Usuario:
+        response = await self.__client.get(
             f"{self.api_url}/autenticacao/usuario-autenticado"
         )
-        if not response.ok:
+        if response.is_error:
             raise ApiError("dados do usuário", response)
 
         return Usuario.model_validate_json(response.text)
 
-    def horarios(self, periodo: PeriodoLetivo) -> dict[str, HorarioDiaItem]:
+    async def horarios(self, periodo: PeriodoLetivo) -> dict[str, HorarioDiaItem]:
         params = {"t": 2010}
         if periodo is not None:
             params = {
@@ -131,36 +136,36 @@ class QAcademico:
                 "cmbanos": periodo.ano,
                 "cmbperiodos": periodo.periodo,
             }
-        response = self.__session.get(
+        response = await self.__client.get(
             f"{self.base_url}/qacademico/index.asp", params=params
         )
-        if not response.ok:
+        if response.is_error:
             raise ApiError("dados dos horários", response)
         doc = BeautifulSoup(response.text, self.DEFAULT_HTML_PARSER)
         return parse_horarios(doc)
 
-    def periodos_letivos(self) -> list[PeriodoLetivo]:
-        response = self.__session.get(f"{self.api_url}/boletim/periodos-letivos")
-        if not response.ok:
+    async def periodos_letivos(self) -> list[PeriodoLetivo]:
+        response = await self.__client.get(f"{self.api_url}/boletim/periodos-letivos")
+        if response.is_error:
             raise ApiError("a lista de períodos letivos", response)
 
         return self.__periodos_ta.validate_json(response.text)
 
-    def boletim(self, periodo: PeriodoLetivo) -> list[BoletimItem]:
-        response = self.__session.get(
+    async def boletim(self, periodo: PeriodoLetivo) -> list[BoletimItem]:
+        response = await self.__client.get(
             f"{self.api_url}/boletim/disciplinas",
             params=periodo.model_dump(by_alias=True),
         )
-        if not response.ok:
+        if response.is_error:
             raise ApiError("o boletim", response)
 
         return self.__boletim_ta.validate_json(response.text)
 
-    def coeficiente(self) -> Coeficiente:
-        response = self.__session.get(
+    async def coeficiente(self) -> Coeficiente:
+        response = await self.__client.get(
             f"{self.api_url}/dashboard/aluno/grafico-rendimento"
         )
-        if not response.ok:
+        if response.is_error:
             raise ApiError("coeficiente", response)
 
         return Coeficiente.model_validate_json(response.text, by_alias=True)

@@ -1,5 +1,4 @@
-import re
-from requests.models import Response
+from httpx import Response
 
 
 class QAcademicoError(Exception):
@@ -11,10 +10,10 @@ class LoginError(QAcademicoError):
 
 
 class ApiError(QAcademicoError):
-    BASE_URL_REGEX = re.compile(r"http[s]?://\S+?/")
-
     def __init__(self, type: str, response: Response):
         code = response.status_code
-        url = self.BASE_URL_REGEX.sub("/", response.url)
-        self.message = f"Falha ao obter {type}: HTTP {code} em {url}"
+        self.message = (
+            f"Falha ao obter {type}: HTTP {code} em {response.url.raw_path.decode()}"
+        )
         super().__init__(self.message)
+
