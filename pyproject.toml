@@ -1,7 +1,7 @@
 [project]
-name = "poc"
+name = "qacademico"
 version = "0.1.0"
-description = "Prova de conceito de login no QAcadêmico automatizado"
+description = "Biblioteca para acesso de dados no QAcadêmico."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = ["pydantic>=2.12.4", "beautifulsoup4>=4.14.2", "httpx>=0.28.1"]
